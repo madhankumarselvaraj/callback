@@ -1,8 +1,118 @@
+import { useEffect, useRef, useState } from "react";
 
-[112 lines collapsed]
+const pttDomain = "ptt.id.ups.com";
+const devDomain = "dev.id.ups.com";
+const clientId = "KIDej415T498rgiiAW2BRVfRqY5HY0yA";
+const devClientId = "IZ27gtwV4pWCMhvh4E6Isz403FNFCIol";
+const appOrigin = "http://localhost:8000";
 
+const pttLogoutUrl = `https://${pttDomain}/v2/logout?${new URLSearchParams({
+  client_id: clientId,
+  returnTo: appOrigin,
+}).toString()}`;
+
+const devLogoutUrl = `https://${devDomain}/v2/logout?${new URLSearchParams({
+  client_id: devClientId,
+}).toString()}`;
+
+function logoutTenants() {
+  const popup = window.open(devLogoutUrl, "dev-logout", "width=480,height=420");
+  if (!popup) return false;
+  window.setTimeout(() => {
+    if (!popup.closed) popup.close();
+    window.location.assign(pttLogoutUrl);
+  }, 1500);
+  return true;
+}
+
+const authorizeUrl = `https://ptt.id.ups.com/authorize?${new URLSearchParams({
+  response_type: "code",
+  scope: "openid profile email",
+  client_id: clientId,
+  redirect_uri: "http://localhost:8000/callBack",
+  prompt: "login",
+  max_age: "0",
+  response_mode: "query",
+  "ups-returnto": "https://www.ups.com/us/en/home",
+  "ext-loc": "en_US",
+  ui_locales: "en",
+}).toString()}`;
+
+const exchanges = new Map();
+
+function exchangeCode(code) {
+  if (!exchanges.has(code)) {
+    exchanges.set(
+      code,
+      fetch("/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      }).then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error_description || payload.error || "Token exchange failed.");
+        }
+        return payload;
+      })
+    );
+  }
+  return exchanges.get(code);
+}
+
+function decodeJwt(token) {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  const padded = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+  const json = new TextDecoder().decode(Uint8Array.from(atob(padded), (char) => char.charCodeAt(0)));
+  return JSON.parse(json);
+}
+
+function formatClaim(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function formatTime(seconds) {
+  if (!seconds) return "";
+  return new Date(seconds * 1000).toISOString();
+}
+
+const hiddenClaims = new Set(["nickname", "email_verified"]);
+
+const detailFields = [
+  ["name", "Name"],
+  ["email", "Email"],
+  ["organization", "Organization"],
+  ["sub", "Subject"],
+  ["iss", "Issuer"],
+  ["aud", "Audience"],
+  ["iat", "Issued"],
+  ["exp", "Expires"],
+];
+
+function organizationText(claims) {
+  const lines = [];
+  if (claims.org_name || claims.org_id) {
+    lines.push([claims.org_name, claims.org_id].filter(Boolean).join(" — "));
+  }
+  for (const [key, value] of Object.entries(claims)) {
+    if (key === "org_id" || key === "org_name" || !/org/i.test(key)) continue;
+    const list = Array.isArray(value) ? value : [value];
+    for (const org of list) {
+      if (org == null || org === "") continue;
+      if (typeof org === "string") lines.push(org);
+      else lines.push([org.name || org.display_name, org.id].filter(Boolean).join(" — ") || formatClaim(org));
+    }
+  }
+  return [...new Set(lines)].join("\n") || "Not in the ID token";
+}
+
+function shownClaims(claims) {
   return Object.fromEntries(Object.entries(claims).filter(([key]) => !hiddenClaims.has(key)));
 }
+
 function IconPin({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -10,6 +120,7 @@ function IconPin({ className }) {
     </svg>
   );
 }
+
 function IconSearch() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -18,6 +129,7 @@ function IconSearch() {
     </svg>
   );
 }
+
 function IconExternal() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -26,6 +138,7 @@ function IconExternal() {
     </svg>
   );
 }
+
 function Logo() {
   return (
     <svg className="logo" viewBox="0 0 78 86" role="img" aria-label="ups">
@@ -35,6 +148,7 @@ function Logo() {
     </svg>
   );
 }
+
 function IconBell() {
   return (
     <svg className="quick-svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -43,6 +157,7 @@ function IconBell() {
     </svg>
   );
 }
+
 function IconTruck() {
   return (
     <svg className="quick-svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -52,6 +167,7 @@ function IconTruck() {
     </svg>
   );
 }
+
 function IconHelp() {
   return (
     <svg className="quick-svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -61,6 +177,7 @@ function IconHelp() {
     </svg>
   );
 }
+
 function TrackingArt() {
   return (
     <svg className="tracking-art" viewBox="0 0 72 64" aria-hidden="true">
@@ -72,6 +189,7 @@ function TrackingArt() {
     </svg>
   );
 }
+
 function ShippingArt() {
   return (
     <svg className="card-art" viewBox="0 0 88 72" aria-hidden="true">
@@ -83,6 +201,7 @@ function ShippingArt() {
     </svg>
   );
 }
+
 function HelpArt() {
   return (
     <svg className="card-art" viewBox="0 0 88 72" aria-hidden="true">
@@ -94,14 +213,11 @@ function HelpArt() {
     </svg>
   );
 }
+
 function Login() {
   const [trackingNumber, setTrackingNumber] = useState("");
+
   return (
-    <main>
-      <h1>PTT login</h1>
-      <p>Sign in through the PTT tenant. The ID token is shown here after the callback.</p>
-      <button type="button" onClick={() => window.location.assign(authorizeUrl)}>Log in</button>
-    </main>
     <div className="page">
       <header className="utility">
         <div className="wrap utility-inner">
@@ -123,6 +239,7 @@ function Login() {
           </div>
         </div>
       </header>
+
       <div className="mast">
         <div className="wrap mast-inner">
           <Logo />
@@ -142,6 +259,7 @@ function Login() {
           </div>
         </div>
       </div>
+
       <main>
         <div className="band" aria-hidden="true">
           <svg viewBox="0 0 1440 240" preserveAspectRatio="none">
@@ -162,3 +280,103 @@ function Login() {
                 onChange={(event) => setTrackingNumber(event.target.value)}
                 placeholder="Tracking Number or InfoNotice®"
               />
+              <button type="submit" className="track-button">Track ›</button>
+            </form>
+            <p className="help-line">
+              Need help changing your delivery? <a href="#help">Get Help</a>
+            </p>
+            <div className="quick-links">
+              <a href="#alerts"><IconBell /> Set Up Alerts</a>
+              <a href="#delivery"><IconTruck /> Change Delivery</a>
+              <a href="#support"><IconHelp /> Get Support</a>
+            </div>
+          </section>
+          <aside className="side">
+            <a className="side-card" id="shipping" href="#shipping">
+              <IconExternal />
+              <ShippingArt />
+              <span>Shipping</span>
+            </a>
+            <a className="side-card" id="help" href="#help">
+              <IconExternal />
+              <HelpArt />
+              <span>How Can We Help You?</span>
+            </a>
+          </aside>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function Callback() {
+  const [idToken, setIdToken] = useState("");
+  const [claims, setClaims] = useState(null);
+  const [status, setStatus] = useState("Waiting for the authorization code.");
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const callbackError = params.get("error_description") || params.get("error");
+    const code = params.get("code");
+    if (callbackError) {
+      setStatus(callbackError);
+      return;
+    }
+    if (!code) {
+      setStatus("No authorization code was returned.");
+      return;
+    }
+    setStatus("Exchanging the authorization code.");
+    exchangeCode(code)
+      .then((tokens) => {
+        const token = tokens.id_token || "";
+        setIdToken(token);
+        setClaims(token ? decodeJwt(token) : null);
+        setStatus(token ? "ID token received." : "The token response did not include an ID token.");
+      })
+      .catch((error) => {
+        setStatus(error.message);
+      });
+  }, []);
+
+  return (
+    <main className="callback-page">
+      <h1>PTT callback</h1>
+      <p>{status}</p>
+      {claims ? (
+        <dl>
+          {detailFields.map(([key, label]) => (
+            <div key={key}>
+              <dt>{label}</dt>
+              <dd>{key === "organization" ? organizationText(claims) : key === "iat" || key === "exp" ? formatTime(claims[key]) : formatClaim(claims[key])}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <form onSubmit={(event) => event.preventDefault()}>
+        <label htmlFor="claims">Token details</label>
+        <textarea id="claims" name="claims" readOnly value={claims ? JSON.stringify(shownClaims(claims), null, 2) : ""} rows={12} />
+        <label htmlFor="idToken">ID token</label>
+        <textarea id="idToken" name="idToken" readOnly value={idToken} rows={6} />
+      </form>
+      {idToken ? (
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => {
+            if (!logoutTenants()) setStatus("Allow pop-ups for this site, then click Log out again.");
+          }}
+        >
+          Log out
+        </button>
+      ) : null}
+    </main>
+  );
+}
+
+export default function App() {
+  return window.location.pathname === "/callBack" ? <Callback /> : <Login />;
+}
